@@ -48,4 +48,7 @@ def terminal_approve(step, obs, why):
     print(f"\n>> APPROVAL NEEDED: {step.action} {target} {step.value or ''}".rstrip())
     print(f"   why it's asking: {why}")
     print(f"   model's reason:  {step.reason}")
-    return input("   Approve? [y/N] ").strip().lower() == "y"
+    try:
+        return input("   Approve? [y/N] ").strip().lower() == "y"
+    except EOFError:          # no answer possible: treat it as "no"
+        return False

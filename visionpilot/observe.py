@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+from playwright.sync_api import Error as PlaywrightError
 
 # Everything VisionPilot might click or type into.
 SELECTOR = "a, button, input, select, textarea, [role=button]"
@@ -54,35 +55,55 @@ def _font():
         return ImageFont.load_default()
 
 
-def observe(page, run_dir, n):
-    """Look at the page now. n is the step number, used in file names."""
-    run_dir = Path(run_dir)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    obs = Observation(
-        raw_path=str(run_dir / f"step-{n:02d}-raw.png"),
-        labeled_path=str(run_dir / f"step-{n:02d}-labeled.png"),
-        url=page.url,
-    )
-
-    # 1. Find every visible interactive element, in page order.
+def _find_elements(page):
+    """Every visible interactive element, in page order, with its handle."""
+    elements, handles = [], []
     for handle in page.query_selector_all(SELECTOR):
         box = handle.bounding_box()
         if not handle.is_visible() or not box or box["width"] < 2 or box["height"] < 2:
             continue
         tag = handle.evaluate("e => e.tagName.toLowerCase()")
         value = handle.input_value() if tag in ("input", "select", "textarea") else ""
-        obs.elements.append({
-            "id": len(obs.elements) + 1,
+        elements.append({
+            "id": len(elements) + 1,
             "tag": tag,
             "type": handle.get_attribute("type") or "",
             "text": " ".join(_name(handle).split())[:60],
             "value": value,
             "box": box,
         })
-        obs.handles.append(handle)
+        handles.append(handle)
+    return elements, handles
 
-    # 2. Plain screenshot, then a copy with a numbered red box on each element.
-    png = page.screenshot(path=obs.raw_path)
+
+def observe(page, run_dir, n):
+    """Look at the page now. n is the step number, used in file names."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = str(run_dir / f"step-{n:02d}-raw.png")
+
+    # 1. Find the elements and take the photo. If the page reloads while we
+    #    are looking, wait for it to settle and look again (up to 3 tries).
+    for attempt in range(3):
+        try:
+            page.wait_for_load_state("load", timeout=5000)
+            elements, handles = _find_elements(page)
+            png = page.screenshot(path=raw_path)
+            break
+        except PlaywrightError:
+            if attempt == 2:
+                raise
+            page.wait_for_timeout(1000)
+
+    obs = Observation(
+        raw_path=raw_path,
+        labeled_path=str(run_dir / f"step-{n:02d}-labeled.png"),
+        url=page.url,
+        elements=elements,
+        handles=handles,
+    )
+
+    # 2. A copy of the photo with a numbered red box on each element.
     img = Image.open(io.BytesIO(png)).convert("RGB")
     draw = ImageDraw.Draw(img)
     font = _font()
