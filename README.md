@@ -1,387 +1,207 @@
-# DataPulse v0 — Warehouse Engineering CDP Exercise
+# VisionPilot
 
-DataPulse v0 is a warehouse-engineering proof of concept focused on turning raw customer event data into trusted, identity-aware, analytics-ready models.
+VisionPilot is an AI agent that uses a web browser the way a person does. You type a task in plain English. It looks at the screen, decides what to click, asks you before anything risky, does it, and then looks at the screen again to check it really worked.
 
-The project uses **Google's public GA4 ecommerce dataset in BigQuery** as the behavioral event source and demonstrates the warehouse responsibilities required for a CDP implementation:
+Built for the **Meta Global AI Developer Hackathon** (Indie track) with **Muse Spark** through the Meta Model API, and **Muse Code**.
 
-* Source-to-warehouse validation
-* Data-quality monitoring
-* Schema consistency checks
-* Identity stitching
-* Standardized event modeling
-* Unified customer modeling
-* Purchase-quality controls
-* Sequential funnel analytics
-* BI-ready datasets
+🎬 **Demo video:** _add link here_
 
 ---
 
-## Architecture
+## Why I built this
 
-```text
-Google GA4 Public Dataset
-          ↓
-datapulse_raw
-    raw_ga4_events
-          ↓
-Data Quality Validation
-          ↓
-datapulse_staging
-    identity_map
-    stg_events
-          ↓
-datapulse_mart
-    events
-    users
-    customer_funnel
-    funnel_summary
-    daily_event_volume
-          ↓
-Looker Studio
+I started this hackathon as a beginner. In one week I had to learn PowerShell, git, Python environments, API keys and Meta's tools all at once. I asked chatbots for help a lot, and they gave me good instructions. But they couldn't see my screen. I typed commands into the wrong window, put my API key in the wrong file, and ran tests while my website wasn't even running. Every time, I had to copy the error back and explain what I was looking at.
+
+That's the gap I wanted to close. A helper that only tells you what to do leaves the hard part to you. VisionPilot looks at the screen itself, does the steps, and checks its own work. And when something unexpected shows up, it notices instead of pretending everything went fine.
+
+---
+
+## What it can do
+
+VisionPilot works on a small practice admin website that I built (it runs on my own laptop), so the demo never breaks because someone else's site changed.
+
+| Task | What I type | What VisionPilot does |
+| --- | --- | --- |
+| **A. Read** | "Find and summarise the errors on this dashboard." | Reads the dashboard and lists the 3 errors (database timeout, payment API 500, disk at 95%) |
+| **B. Act** | "Change the alert threshold to 80% and save." | Goes to Settings, types 80, **asks me before clicking Save**, saves, and checks for the green "Saved" message |
+| **C. Adapt** | Same as B, but a surprise pop-up appears | Notices the pop-up blocking the page, clicks Dismiss, then finishes the task |
+
+---
+
+## How it works
+
+Every task is the same loop, repeated until the task is done:
+
+```
+   ┌─► 📸 look ─► 🧠 decide ─► 🛡 guard ─► ✋ act ─► ✅ check ─┐
+   │                                                          │
+   └────────────── fresh photo every time ◄───────────────────┘
 ```
 
-The warehouse follows a simple three-layer structure:
+| Part | File | What it does |
+| --- | --- | --- |
+| 📸 Eyes | `visionpilot/observe.py` | Takes a screenshot and draws a **numbered red box** on every button, link and text box |
+| 🧠 Brain | `visionpilot/planner.py` | Sends the task, the numbered screenshot and the list of elements to Muse Spark, and gets back **one** next step, like `type 80 into number 3` |
+| 📋 Template | `visionpilot/schema.py` | Every answer must be: action + element number + value. Anything else is rejected |
+| 🛡 Guard | `visionpilot/safety.py` | Decides: go, ask the human first, or refuse |
+| ✋ Hands | `visionpilot/executor.py` | Does the step in the browser with Playwright |
+| ✅ Checker | `visionpilot/verifier.py` | Shows Muse Spark the screen **before and after** the step and asks: did it really work? |
+| 🔁 Loop | `visionpilot/agent.py` | Connects everything, keeps a history of what worked and what failed, and decides when to stop |
 
-**RAW** — preserves source-like event data for traceability.
+### The numbered-box trick
 
-**STAGING** — applies identity enrichment and standardization.
+AI models are good at understanding *what* is on a screen, but not good at guessing exact pixel positions. So VisionPilot never asks for coordinates. Playwright already knows exactly where every button is, so it numbers them all. The model just answers "click 5", and the code clicks element 5. Each side does the part it's good at.
 
-**MART** — exposes business-ready events, users, funnel metrics, and dashboard datasets.
+### How it adapts
 
----
+Every result goes into a history the model sees on the next turn:
 
-## Source Data
-
-Source:
-
-`bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-
-Analysis window:
-
-`2021-01-18 → 2021-01-31`
-
-Selected customer journey:
-
-```text
-page_view
-   ↓
-view_item
-   ↓
-add_to_cart
-   ↓
-begin_checkout
-   ↓
-purchase
+```
+OK:     type [3] "Alert threshold (%)" '80'
+FAILED: click [5] "Save settings" -> blocked (TimeoutError)
 ```
 
-The selected source population contains:
+So when a click fails, or the checker sees something unexpected, the next decision takes that into account, for example "close the pop-up first".
 
-* **264,485 events**
-* **42,891 unique visitors**
-* **14 days of activity**
-* **5 customer-journey event types**
+### When it stops
 
-The project intentionally uses the complete selected population rather than sampling users so that funnel and quality metrics reflect the full analysis window.
-
----
-
-## CDP / Segment Mapping
-
-The source is GA4 rather than Segment. The following concepts are used to model the equivalent CDP behavior:
-
-| CDP Concept        | DataPulse Implementation                                    |
-| ------------------ | ----------------------------------------------------------- |
-| Event              | `event_name`                                                |
-| Event timestamp    | `event_timestamp`                                           |
-| Anonymous identity | `user_pseudo_id → anonymous_id`                             |
-| Known identity     | simulated `user_id`                                         |
-| Resolved identity  | `stitched_user_id`                                          |
-| Event properties   | transaction, revenue, item, device and geography attributes |
-| Customer model     | `datapulse_mart.users`                                      |
-
-Because the public GA4 dataset contains no populated `user_id`, the known-user identity layer is explicitly **simulated for demonstration purposes**.
+- ✅ The model says **done** and one more look confirms the task is complete
+- ❌ **3 failures in a row**: it stops and says it needs help, instead of guessing forever
+- ❌ **15 steps** used
+- ⏹ I say **no** at an approval
 
 ---
 
-## Data Quality Validation
+## Safety
 
-Before downstream modeling, the raw event stream is validated for completeness and trust.
+I wanted it to be impossible for VisionPilot to save or delete something without me saying yes.
 
-### Source-to-target reconciliation
+- **Only 5 actions exist:** click, type, select, scroll, done. Anything else the model invents is rejected.
+- **Two checks before risky steps:** the model marks a step as risky, **and** the guard reads the button's own words. If it finds a word like *save, submit, delete, remove, pay, confirm* or *apply*, it asks me first, even if the model forgot to flag it.
+- **Never types into password boxes.**
+- **Only works on my practice site.** There is no "go to any website" action.
+- **The API key lives only in `.env`,** which git never uploads.
 
-* Source events: **264,485**
-* Raw warehouse events: **264,485**
-* Variance: **0**
-
-All five selected event types reconciled between source and target.
-
-### Critical-field completeness
-
-No missing values were detected in:
-
-* `event_date`
-* `event_timestamp`
-* `event_name`
-* `user_pseudo_id`
-
-The source contains no populated `user_id` values because the public dataset is obfuscated.
-
-### Duplicate detection
-
-* Total rows: **264,485**
-* Distinct full-row hashes: **264,485**
-* Exact duplicates: **0**
-
-### Schema and naming consistency
-
-27 distinct event properties were evaluated.
-
-* Casing violations: **0**
-* Whitespace violations: **0**
-* Naming-format violations: **0**
-
-Observed event/property names conform to `lowercase_snake_case`.
-
-### Daily ingestion continuity
-
-All **14 expected dates** were present and all **5 selected event types** appeared every day.
-
-No full-day ingestion gaps were detected.
+`tests/safety_test.py` tries 6 risky steps against the guard. All 6 are caught.
 
 ---
 
-## Purchase Quality Investigation
+## What happened when I tested it with the real model
 
-The source contained:
+**Task B (Nov 3):** VisionPilot went to Settings, typed 80, asked me before Save, and saved. The checker's own words after the save:
 
-* **738 purchase-labelled events**
-* **468 complete transactions**
-* **270 incomplete purchase signals**
+> "After clicking Save settings, the Alert settings page shows green confirmation 'Saved: alert threshold is 80%'…"
 
-The incomplete population contained:
+**Task C (Nov 4):** after typing 80 the pop-up appeared, and the checker noticed it straight away:
 
-* `transaction_id = "(not set)"`
-* NULL purchase revenue
-* NULL item quantity
+> "Alert threshold input changed from 70 to 80 as intended, but an unexpected modal popup appeared stating 'Your session will expire in 5 minutes'…"
 
-These records are preserved for auditability but classified as `incomplete` so they do not inflate trusted purchase or revenue metrics.
+On the next step VisionPilot chose **Dismiss**. In that run the checker also caught something I didn't expect: the settings got saved during the Dismiss step (most likely a stray Enter key reached the browser), and it reported that honestly instead of calling the step a clean success. That's exactly why every step is checked with a second screenshot.
 
-```text
-738 purchase signals
-       ↓
-468 valid
-270 incomplete
+Every run is saved in `runs/<date-time>/` with every screenshot and a `log.json` of each decision, so any run can be replayed.
+
+---
+
+## Meta models used
+
+- **Muse Spark 1.3** (`muse-spark-1.3`) through the **Meta Model API** (`https://api.meta.ai/v1`, OpenAI-compatible). It does three jobs:
+  1. **Decide** the next step from the numbered screenshot
+  2. **Check** each step by comparing before and after screenshots
+  3. **Confirm** the task is really finished before VisionPilot says "done"
+- **Muse Code** — I used it on my laptop to create the project files from prompts I reviewed, and to explain each file to me in simple English.
+
+I'm a beginner, so I also used AI assistants (Muse Code and Claude) to help me design, write and understand the code. I made the design decisions step by step and tested every part on my own laptop.
+
+---
+
+## Run it yourself
+
+You need Python 3.11 or newer and a Meta Model API key.
+
+**1. Get the code and install the tools**
+
+```powershell
+git clone https://github.com/<your-username>/visionpilot.git
+cd visionpilot
+python -m venv .venv
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
 ```
 
----
+**2. Add your key**
 
-## Identity Stitching
+Copy `.env.example` to `.env` and paste your key after `MODEL_API_KEY=`:
 
-The public dataset contains anonymous `user_pseudo_id` values but no known `user_id`.
-
-For the exercise, the first `begin_checkout` event is treated as the simulated identification point.
-
-A deterministic known-user ID is generated and mapped to each qualifying anonymous visitor.
-
-### Identity results
-
-* Identity mappings: **1,133**
-* Unique anonymous IDs: **1,133**
-* Unique generated user IDs: **1,133**
-* Mapping collisions: **0**
-
-Two identity perspectives are preserved:
-
-**`user_id_at_event`**
-
-Represents whether the customer was considered known when the event occurred.
-
-**`stitched_user_id`**
-
-Retroactively associates historical anonymous activity with the resolved customer.
-
-Identity enrichment preserved the original event population:
-
-* Raw events: **264,485**
-* Staged events: **264,485**
-
----
-
-## Unified Users Model
-
-`datapulse_mart.users`
-
-Grain:
-
-`One row = one observed visitor`
-
-Results:
-
-* Total visitors: **42,891**
-* Identified users: **1,133**
-* Anonymous visitors: **41,758**
-
-The model includes:
-
-* anonymous identity
-* resolved user identity
-* identity status
-* first seen timestamp
-* last seen timestamp
-* identification timestamp
-* first observed country
-* first observed device type
-* total event count
-
----
-
-## Sequential Purchase Funnel
-
-The funnel requires each stage to occur at or after the previous stage:
-
-```text
-page_view
-   ↓
-view_item
-   ↓
-add_to_cart
-   ↓
-begin_checkout
-   ↓
-valid_purchase
+```
+MODEL_API_KEY=your-key-here
+MODEL_API_BASE_URL=https://api.meta.ai/v1
+MODEL_API_MODEL=muse-spark-1.3
 ```
 
-Only purchases passing the warehouse quality rules are included.
+**3. Start the practice website** (leave this window open)
 
-| Stage          |  Users | Previous-stage conversion | Conversion from start |
-| -------------- | -----: | ------------------------: | --------------------: |
-| Page View      | 42,885 |                   100.00% |               100.00% |
-| View Item      | 10,994 |                    25.64% |                25.64% |
-| Add to Cart    |  1,956 |                    17.79% |                 4.56% |
-| Begin Checkout |    859 |                    43.92% |                 2.00% |
-| Valid Purchase |    360 |                    41.91% |                 0.84% |
+```powershell
+python target_app/app.py
+```
 
-**Overall page-view-to-valid-purchase conversion: 0.84%.**
+It runs at http://localhost:5000.
 
-The funnel is customer-level across the full 14-day analysis window rather than session-level.
+**4. In a second window, give VisionPilot a task**
+
+```powershell
+.venv\Scripts\activate
+python cli.py "Find and summarise the errors on this dashboard."
+python cli.py "Change the alert threshold to 80% and save"
+python cli.py "Change the alert threshold to 80% and save" --start "http://localhost:5000/settings?popup=1"
+```
+
+When it asks `Approve? [y/N]`, type `y` in the terminal. Don't click inside the browser while it's working.
+
+To start again from 70: `Invoke-RestMethod -Method Post http://localhost:5000/reset` (or restart the website).
+
+### Tests
+
+| Command | What it checks | Needs |
+| --- | --- | --- |
+| `python -m tests.safety_test` | The guard catches 6 risky steps | Nothing |
+| `python -m tests.vision_test` | Muse Spark can describe a screenshot | API key |
+| `python -m tests.observe_test` | Numbered boxes on every page | Website running |
+| `python -m tests.plan_test` | The model's first decisions for Tasks A and B | Website + API key |
+| `python -m tests.executor_test` | The hands and guard on Tasks B and C, no model | Website |
 
 ---
 
-## Dashboard
+## Project layout
 
-The Looker Studio MVP contains two views:
-
-### Daily CDP Event Volume
-
-Shows daily volume across the five selected event types and confirms continuous event activity.
-
-### Sequential Customer Purchase Funnel
-
-Shows customer progression from page view through validated purchase.
-
-Key business insight:
-
-> 360 users completed a validated purchase, representing a 0.84% page-view-to-purchase conversion. Checkout-to-valid-purchase conversion was 41.91%.
-
----
-
-## Repository Structure
-
-```text
-datapulse-v0-warehouse-engineering/
-│
-├── README.md
-│
-├── sql/
-│   ├── 01_source_ingestion.sql
-│   ├── 02_data_quality_validation.sql
-│   ├── 03_identity_stitching.sql
-│   ├── 04_analytics_models.sql
-│   ├── 05_customer_funnel.sql
-│   └── 06_dashboard_marts.sql
-│
-├── dashboard/
-│   └── datapulse_dashboard.png
-│
-└── docs/
-    └── warehouse_runbook.pdf
+```
+visionpilot/
+  llm.py         the one doorway to the Meta model
+  observe.py     eyes: numbered screenshot + element list
+  schema.py      the answer template
+  planner.py     brain: the next step
+  safety.py      guard: go / ask / refuse
+  executor.py    hands: click, type, select, scroll
+  verifier.py    checker: before/after, and the final check
+  agent.py       the loop
+target_app/app.py  the practice website (Tasks A, B, C)
+cli.py             run a task from the terminal
+tests/             the tests above
 ```
 
 ---
 
-## SQL Execution Order
+## Limitations and what's next
 
-Run scripts in numeric order:
+- It only works on my practice website. That's on purpose for safety, but it means it hasn't been tried on real apps yet.
+- Each step takes a few seconds, mostly waiting for the model.
+- The model's answers can vary between runs. I tested each task with the real model, but I haven't done a proper "run it 5 times and count" evaluation yet.
+- Approvals happen in the terminal for now.
 
-```text
-01_source_ingestion.sql
-        ↓
-02_data_quality_validation.sql
-        ↓
-03_identity_stitching.sql
-        ↓
-04_analytics_models.sql
-        ↓
-05_customer_funnel.sql
-        ↓
-06_dashboard_marts.sql
-```
-
-BigQuery GoogleSQL is used throughout the project.
+Next I'd like to add a simple screen where you watch the numbered screenshots live and press an Approve button, use **SAM 3.1** to highlight the exact part of the screen VisionPilot is working on, and try it on real apps that need a login.
 
 ---
 
-## Known Limitations
+## License
 
-* Behavioral events are sourced from Google's public GA4 ecommerce dataset, not a live Segment implementation.
-* Known-user identity is simulated because the obfuscated dataset contains no populated `user_id`.
-* First `begin_checkout` is used as the demonstration identification point.
-* The funnel operates across the 14-day customer journey rather than enforcing session-level boundaries.
-* No Segment paid add-ons such as Protocols are assumed.
-
-In a production implementation, identity mapping would originate from actual Segment `identify`/authentication events and schema validation would be enforced against an approved tracking plan or schema contract.
-
----
-
-## Operational Monitoring
-
-### Daily
-
-* Event arrival and event-type counts
-* Source-to-target reconciliation
-* Critical-field completeness
-* Duplicate detection
-* Missing ingestion dates
-* Unexpected event/property names
-* Purchase transaction and revenue completeness
-* Event-volume anomalies
-
-### Weekly
-
-* Tracking-plan/schema changes
-* Identity mapping integrity
-* Funnel conversion changes
-* Recurring source-quality issues
-* Data dictionary and validation-rule updates
-
----
-
-## Future v1 Backlog
-
-**Customer Lifetime Value**
-
-Extend validated purchase history into customer-level revenue and lifetime-value models.
-
-**Marketing Attribution**
-
-Combine customer identity, acquisition source, and purchase behavior to measure channel-level conversion and revenue contribution.
-
----
-
-## Technology
-
-* Google BigQuery
-* GoogleSQL
-* Google GA4 public ecommerce dataset
-* Looker Studio
-* Git / GitHub
+MIT. See [LICENSE](LICENSE).
