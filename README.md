@@ -4,7 +4,7 @@ VisionPilot is an AI agent that uses a web browser the way a person does. You ty
 
 Built for the **Meta Global AI Developer Hackathon** (Indie track) with **Muse Spark** through the Meta Model API, and **Muse Code**.
 
-🎬 **Demo video:** _add link here_
+🎬 **Demo video:** https://youtu.be/IkUVybdDUm4?si=vQe_KMG3odXeATuJ
 
 ---
 
