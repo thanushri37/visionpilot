@@ -29,8 +29,8 @@ Actions:
 Rules:
 - Only use element_id numbers that are in the list.
 - Set risky to true for any step that saves, submits, deletes or pays.
-- If something unexpected (a pop-up, a dialog, an error) blocks the page, deal
-  with it first.
+- If a pop-up or dialog is visible, close it (for example, click its Dismiss
+  or Close button) BEFORE anything else, even if the task looks almost done.
 - Only say "done" when the screen shows the task is complete.
 
 Example. Task: "Set notify to Slack". List has [4] select "Notify by".

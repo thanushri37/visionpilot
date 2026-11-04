@@ -6,8 +6,24 @@ click (for example, blocked by a pop-up) is information, not a disaster.
 Always run the guard (safety.check) before calling this.
 """
 
+# Errors that mean "the page changed while we acted" - for example, a Save
+# button that reloads the page, or a Dismiss button that removes itself.
+# The click probably worked, so we let the checker judge the after-photo.
+PAGE_CHANGED = ("not attached to the DOM", "Execution context was destroyed")
+
 
 def execute(page, step, obs):
+    error = _act(page, step, obs)
+    if error and any(sign in error for sign in PAGE_CHANGED):
+        try:
+            page.wait_for_load_state("load", timeout=5000)
+        except Exception:
+            pass
+        return None
+    return error
+
+
+def _act(page, step, obs):
     try:
         if step.action == "scroll":
             page.mouse.wheel(0, 600)
